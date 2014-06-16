@@ -1,5 +1,8 @@
 import Control.Arrow (first)
 
+import Control.Monad.Trans.State
+import Control.Monad.Trans.Class
+
 import Data.Word
 import Data.ByteString
 import qualified Data.Map as M
@@ -38,6 +41,7 @@ data Tmessage =
   Topen Fid Mode |
   Tcreate Fid ByteString Perm Mode |
   Tread Fid Word64 Word32
+  deriving (Show, Read)
 
 data Rmessage =
   Rversion Word32 ByteString |
@@ -49,13 +53,14 @@ data Rmessage =
   Ropen Qid Word32 |
   Rcreate Qid Word32 |
   Rread ByteString
+  deriving (Show, Read)
 
 type Err m = String -> StyxT m ()
 type Resp m t = t -> StyxT m ()
-type Handler m i o = i -> Resp m o -> Err m -> StyxT m ()
+type Handler m i o = i -> Err m -> Resp m o -> StyxT m ()
 
 notYetImpl :: Handler m i o
-notYetImpl _ _ err = err "not yet implemented"
+notYetImpl _ err _ = err "not yet implemented"
 
 data FidHandler m = FidHandler {
   fhCreate :: Handler m (ByteString, Perm, Mode) (Qid, Word32),
@@ -72,37 +77,37 @@ data SrvHandler m = SrvHandler {
   shAttach :: Handler m (ByteString, ByteString) (Qid, FidHandler m)
 }
 
-data StyxState m = StyxState (M.Map Fid (Maybe (FidHandler m)))
-
-newtype StyxT m a = StyxT { runStyxT :: StyxState m -> m (a, StyxState m) }
-
-instance Functor m => Functor (StyxT m) where
-  fmap f st = StyxT $ \s ->
-    fmap (first f) $ runStyxT st s
-
-instance Monad m => Monad (StyxT m) where
-  return v = StyxT $ \s ->
-    return (v, s)
-  a >>= bfn = StyxT $ \s -> do
-    (r, s') <- runStyxT a s
-    runStyxT (bfn r) s'
-
--- instance MonadTrans
-
-modify :: Monad m => (Map Fid (FidHandler m) -> Map Fid (FidHandler m)) -> StyxT m ()
-modify f = StyxT $ \(StyxState s) -> ((), return $ StyxState $ f s)
+type StyxT m = StateT (M.Map Fid (Maybe (FidHandler m))) m
 
 input :: Monad m => SrvHandler m -> ((Tag, Rmessage) -> m ()) -> (Tag, Tmessage) -> StyxT m ()
-input sh out (tag, tmsg) = modify input'
+input sh out (tag, tmsg) = case tmsg of
+  Tversion msize version ->
+    resp $ Rversion msize version
+  -- Tauth
+  -- Tflush
+  Tattach fid afid uname aname -> checkNoFid fid $ do
+    modify $ M.insert fid Nothing
+    shAttach sh (uname, aname) err $ \(qid, fh) -> do
+      modify $ M.insert fid $ Just fh -- what if the client is bad?
+      resp $ Rattach qid
+  -- Twalk
+  -- Topen
+  -- Tcreate
+  Tread fid offs len -> checkFid fid $ \fh ->
+    fhRead fh (offs, len) err $ resp . Rread
   where
-    input' hndlrs = case tmsg of
-      Tversion msize version -> out (tag, Rversion msize version)
-      Tattach fid afid uname aname -> shAttach (uname, aname) $ \(qid, fh) -> do
-        lift $ out ..
-      _ -> err "not yet implemented"
-    where
-{-      checkNoFid fid = if fid `M.member` hndlrs
-        then return True
-        else err ("duplicate " ++ show fid) >> return False
-      checkUsableFid fid = if not (fid `M.member` hndlrs) -}
-      err = out . Rerror . U.fromString
+    resp rmsg = do
+      -- what if the filesystem is bad? shouldn't respond to the same request twice
+      lift $ out (tag, rmsg)
+    checkNoFid fid okay = do
+      map <- get
+      if fid `M.member` map
+        then err $ "duplicate " ++ show fid
+        else okay
+    checkFid fid okay = do
+      map <- get
+      case fid `M.lookup` map of
+        Nothing -> err $ "non-existent " ++ show fid
+        Just Nothing -> err $ "non-initialised " ++ show fid
+        Just (Just fh) -> okay fh
+    err = resp . Rerror . U.fromString

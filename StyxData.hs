@@ -139,14 +139,14 @@ instance SBinary TtaggedMessage where
     msgType <- sget
     tag <- sget
     msg <- case msgType :: Word16 of
-      100 -> do{ (msize, version) <- sget; return $ Tversion msize version }
-      102 -> do{ (afid, uname, aname) <- sget; return $ Tauth afid uname aname }
-      104 -> do{ oldtag <- sget; return $ Tflush oldtag }
-      106 -> do{ (fid, afid, uname, aname) <- sget; return $ Tattach fid afid uname aname }
-      108 -> do{ (fid, newfid, nwnames) <- sget; return $ Twalk fid newfid nwnames }
-      110 -> do{ (fid, mode) <- sget; return $ Topen fid mode }
-      112 -> do{ (qid, name, perm, mode) <- sget; return $ Tcreate qid name perm mode }
-      114 -> do{ (fid, offset, count) <- sget; return $ Tread fid offset count }
+      100 -> Tversion <$> sget <*> sget
+      102 -> Tauth <$> sget <*> sget <*> sget
+      104 -> Tflush <$> sget
+      106 -> Tattach <$> sget <*> sget <*> sget <*> sget
+      108 -> Twalk <$> sget <*> sget <*> sget
+      110 -> Topen <$> sget <*> sget
+      112 -> Tcreate <$> sget <*> sget <*> sget <*> sget
+      114 -> Tread <$> sget <*> sget <*> sget
     return $ TtaggedMessage tag msg
 
 data Rmessage =

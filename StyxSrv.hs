@@ -1,3 +1,5 @@
+module StyxSrv where
+
 import Control.Arrow (first)
 
 import Control.Monad.Trans.State
@@ -42,7 +44,7 @@ data SrvHandler m = SrvHandler {
 
 type StyxT m = StateT (M.Map Fid (Maybe (FidHandler m))) m
 
-input :: Monad m => SrvHandler m -> ((Tag, Rmessage) -> m ()) -> (Tag, Tmessage) -> StyxT m ()
+input :: Monad m => SrvHandler m -> (RtaggedMessage -> m ()) -> (Tag, Tmessage) -> StyxT m ()
 input sh out (tag, tmsg) = case tmsg of
   Tversion msize version ->
     resp $ Rversion msize version
@@ -69,7 +71,7 @@ input sh out (tag, tmsg) = case tmsg of
   where
     resp rmsg = do
       -- what if the filesystem is bad? shouldn't respond to the same request twice
-      lift $ out (tag, rmsg)
+      lift $ out (RtaggedMessage tag rmsg)
     checkNoFid fid okay = do
       map <- get
       if fid `M.member` map

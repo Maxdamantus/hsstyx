@@ -3,7 +3,6 @@ module StyxData where
 import Control.Applicative
 import Data.Word
 import Data.ByteString
-import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
 
@@ -42,11 +41,11 @@ instance (SBinary a, SBinary b, SBinary c, SBinary d) => SBinary (a, b, c, d) wh
 
 instance SBinary ByteString where
   sput bs = sput (fromIntegral $ Data.ByteString.length bs :: Word16) >> putByteString bs
-  sget = do{ len <- get; getByteString (fromIntegral (len :: Word16)) }
+  sget = do{ len <- sget; getByteString (fromIntegral (len :: Word16)) }
 
 instance SBinary a => SBinary [a] where
   sput l = sput (fromIntegral $ Prelude.length l :: Word16) >> mapM_ sput l
-  sget = do{ len <- get; sequence $ Prelude.replicate (fromIntegral (len :: Word16)) sget }
+  sget = do{ len <- sget; sequence $ Prelude.replicate (fromIntegral (len :: Word16)) sget }
 
 newtype Fid = Fid Word32
   deriving (Show, Read, Eq, Ord)
@@ -106,6 +105,27 @@ instance SBinary Qid where
     (t, v, p) <- sget
     return (Qid t v p)
 
+data MsgType =
+  TTversion | TRversion |
+  TTauth | TRauth |
+  TTerror | TRerror |
+  TTflush | TRflush |
+  TTattach | TRattach |
+  TTwalk | TRwalk |
+  TTopen | TRopen |
+  TTcreate | TRcreate |
+  TTread | TRread |
+  TTwrite | TRwrite |
+  TTclunk | TRclunk |
+  TTremove | TRremove |
+  TTstat | TRstat |
+  TTwstat | TRwstat
+  deriving (Show, Read, Eq, Enum)
+
+instance SBinary MsgType where
+  sput t = sput (fromIntegral $ fromEnum t + 100 :: Word16)
+  sget = do{ n <- sget; return $ toEnum $ fromIntegral (n :: Word16) - 100 }
+
 data Tmessage =
   Tversion Word32 ByteString |
   Tauth Fid ByteString ByteString |
@@ -123,30 +143,30 @@ data TtaggedMessage = TtaggedMessage Tag Tmessage
 
 instance SBinary TtaggedMessage where
   sput (TtaggedMessage tag msg) = do
-    sput (msgType :: Word16)
+    sput msgType
     putMsg
     where
       (msgType, putMsg) = case msg of
-        Tversion msize version -> (100, sput (tag, msize, version))
-        Tauth afid uname aname -> (102, sput (afid, uname, aname))
-        Tflush oldtag -> (104, sput oldtag)
-        Tattach fid afid uname aname -> (106, sput (fid, afid, uname, aname))
-        Twalk fid newfid nwnames -> (108, sput (fid, newfid, nwnames))
-        Topen fid mode -> (110, sput (fid, mode))
-        Tcreate qid name perm mode -> (112, sput (qid, name, perm, mode))
-        Tread fid offset count -> (114, sput (fid, offset, count))
+        Tversion msize version -> (TTversion, sput (tag, msize, version))
+        Tauth afid uname aname -> (TTauth, sput (afid, uname, aname))
+        Tflush oldtag -> (TTflush, sput oldtag)
+        Tattach fid afid uname aname -> (TTattach, sput (fid, afid, uname, aname))
+        Twalk fid newfid nwnames -> (TTwalk, sput (fid, newfid, nwnames))
+        Topen fid mode -> (TTopen, sput (fid, mode))
+        Tcreate qid name perm mode -> (TTcreate, sput (qid, name, perm, mode))
+        Tread fid offset count -> (TTread, sput (fid, offset, count))
   sget = do
     msgType <- sget
     tag <- sget
-    msg <- case msgType :: Word16 of
-      100 -> Tversion <$> sget <*> sget
-      102 -> Tauth <$> sget <*> sget <*> sget
-      104 -> Tflush <$> sget
-      106 -> Tattach <$> sget <*> sget <*> sget <*> sget
-      108 -> Twalk <$> sget <*> sget <*> sget
-      110 -> Topen <$> sget <*> sget
-      112 -> Tcreate <$> sget <*> sget <*> sget <*> sget
-      114 -> Tread <$> sget <*> sget <*> sget
+    msg <- case msgType of
+      TTversion -> Tversion <$> sget <*> sget
+      TTauth -> Tauth <$> sget <*> sget <*> sget
+      TTflush -> Tflush <$> sget
+      TTattach -> Tattach <$> sget <*> sget <*> sget <*> sget
+      TTwalk -> Twalk <$> sget <*> sget <*> sget
+      TTopen -> Topen <$> sget <*> sget
+      TTcreate -> Tcreate <$> sget <*> sget <*> sget <*> sget
+      TTread -> Tread <$> sget <*> sget <*> sget
     return $ TtaggedMessage tag msg
 
 data Rmessage =
@@ -164,3 +184,33 @@ data Rmessage =
 
 data RtaggedMessage = RtaggedMessage Tag Rmessage
   deriving (Show, Read)
+
+instance SBinary RtaggedMessage where
+  sput (RtaggedMessage tag msg) = do
+    sput (msgType, tag)
+    putMsg
+    where
+      (msgType, putMsg) = case msg of
+        Rversion msize version -> (TRversion, sput (msize, version))
+        Rauth aqid -> (TRauth, sput aqid)
+        Rerror ename -> (TRerror, sput ename)
+        Rflush -> (TRflush, return ())
+        Rattach qid -> (TRattach, sput qid)
+        Rwalk wqids -> (TRwalk, sput wqids)
+        Ropen qid iounit -> (TRopen, sput (qid, iounit))
+        Rcreate qid iounit -> (TRcreate, sput (qid, iounit))
+        -- 4-byte length
+        Rread rdata -> (TRread, sput (fromIntegral $ Data.ByteString.length rdata :: Word32) >> putByteString rdata)
+  sget = do
+    (msgType, tag) <- sget
+    msg <- case msgType of
+      TRversion -> Rversion <$> sget <*> sget
+      TRauth -> Rauth <$> sget
+      TRerror -> Rerror <$> sget
+      TRflush -> return Rflush
+      TRattach -> Rattach <$> sget
+      TRwalk -> Rwalk <$> sget
+      TRopen -> Ropen <$> sget <*> sget
+      TRcreate -> Rcreate <$> sget <*> sget
+      TRread -> Rread <$> do{ len <- sget; getByteString (fromIntegral (len :: Word32)) }
+    return $ RtaggedMessage tag msg

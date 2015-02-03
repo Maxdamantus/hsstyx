@@ -169,6 +169,9 @@ instance SBinary TtaggedMessage where
       TTread -> Tread <$> sget <*> sget <*> sget
     return $ TtaggedMessage tag msg
 
+getTtaggedMessage :: Get TtaggedMessage
+getTtaggedMessage = sget
+
 data Rmessage =
   Rversion Word32 ByteString |
   Rauth Qid |
@@ -214,3 +217,6 @@ instance SBinary RtaggedMessage where
       TRcreate -> Rcreate <$> sget <*> sget
       TRread -> Rread <$> do{ len <- sget; getByteString (fromIntegral (len :: Word32)) }
     return $ RtaggedMessage tag msg
+
+getRtaggedMessage :: Get RtaggedMessage
+getRtaggedMessage = sget

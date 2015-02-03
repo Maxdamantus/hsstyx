@@ -44,8 +44,8 @@ data SrvHandler m = SrvHandler {
 
 type StyxT m = StateT (M.Map Fid (Maybe (FidHandler m))) m
 
-input :: Monad m => SrvHandler m -> (RtaggedMessage -> m ()) -> (Tag, Tmessage) -> StyxT m ()
-input sh out (tag, tmsg) = case tmsg of
+input :: Monad m => SrvHandler m -> (RtaggedMessage -> m ()) -> TtaggedMessage -> StyxT m ()
+input sh out (TtaggedMessage tag tmsg) = case tmsg of
   Tversion msize version ->
     resp $ Rversion msize version
   -- Tauth

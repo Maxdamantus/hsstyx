@@ -172,6 +172,9 @@ instance SBinary TtaggedMessage where
 getTtaggedMessage :: Get TtaggedMessage
 getTtaggedMessage = sget
 
+putTtaggedMessage :: TtaggedMessage -> Put
+putTtaggedMessage = sput
+
 data Rmessage =
   Rversion Word32 ByteString |
   Rauth Qid |
@@ -220,3 +223,6 @@ instance SBinary RtaggedMessage where
 
 getRtaggedMessage :: Get RtaggedMessage
 getRtaggedMessage = sget
+
+putRtaggedMessage :: RtaggedMessage -> Put
+putRtaggedMessage = sput

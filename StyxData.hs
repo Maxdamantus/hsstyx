@@ -54,7 +54,7 @@ instance SBinary Fid where
   sput (Fid w) = sput w
   sget = Fid <$> sget
 
-newtype Tag = Tag Word32
+newtype Tag = Tag Word16
   deriving (Show, Read, Eq)
 
 instance SBinary Tag where
@@ -123,8 +123,8 @@ data MsgType =
   deriving (Show, Read, Eq, Enum)
 
 instance SBinary MsgType where
-  sput t = sput (fromIntegral $ fromEnum t + 100 :: Word16)
-  sget = do{ n <- sget; return $ toEnum $ fromIntegral (n :: Word16) - 100 }
+  sput t = sput (fromIntegral $ fromEnum t + 100 :: Word8)
+  sget = do{ n <- sget; return $ toEnum $ fromIntegral (n :: Word8) - 100 }
 
 data Tmessage =
   Tversion Word32 ByteString |

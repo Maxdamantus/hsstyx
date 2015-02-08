@@ -13,7 +13,7 @@ import Data.ByteString
 import Data.ByteString.Lazy (toStrict)
 
 msgDecoder :: Decoder ByteString
-msgDecoder = runGetIncremental (fmap fromIntegral getWord32le >>= getByteString)
+msgDecoder = runGetIncremental (fmap (subtract 4 . fromIntegral) getWord32le >>= getByteString)
 
 runSrvIO :: MonadIO m => SrvHandler m -> Handle -> m ()
 runSrvIO sh hnd =
@@ -25,14 +25,16 @@ runSrvIO sh hnd =
         Done rest _ r ->
           case runGetIncremental getTtaggedMessage `pushChunk` r of
             Fail _ _ why -> error why -- TODO: ..
-            Partial _ -> error "message too short"
+            Partial bleh -> error "message too short"
             Done _ _ r -> do
+              liftIO $ System.IO.putStrLn $ "< " ++ show r
               input sh send r
               go msgDecoder
         Partial fn -> do
           more <- liftIO $ hGetSome hnd 8192
           go $ fn $ Just more
     send msg = do
-      liftIO $ hPut hnd $ toStrict (runPut $ putWord32le (fromIntegral $ Data.ByteString.length bs) >> putByteString bs)
+      liftIO $ System.IO.putStrLn $ "> " ++ show msg
+      liftIO $ hPut hnd $ toStrict (runPut $ putWord32le (fromIntegral . (+4) $ Data.ByteString.length bs) >> putByteString bs)
       where
         bs = toStrict $ runPut $ putRtaggedMessage msg

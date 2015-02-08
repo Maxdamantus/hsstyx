@@ -73,6 +73,7 @@ input sh out (TtaggedMessage tag tmsg) = case tmsg of
       resp $ Rcreate qid iounit
   Tread fid offs len -> checkFid fid $ \fh ->
     fhRead fh (offs, len) err $ resp . Rread
+  _ -> err "implementation failure"
   where
     resp rmsg = do
       -- what if the filesystem is bad? shouldn't respond to the same request twice

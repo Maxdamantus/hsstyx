@@ -29,10 +29,12 @@ runSrvIO sh hnd =
             Done _ _ r -> do
               liftIO $ System.IO.putStrLn $ "< " ++ show r
               input sh send r
-              go msgDecoder
+              go $ msgDecoder `pushChunk` rest
         Partial fn -> do
           more <- liftIO $ hGetSome hnd 8192
-          go $ fn $ Just more
+          if Data.ByteString.length more > 0
+            then go $ fn $ Just more
+            else return ()
     send msg = do
       liftIO $ System.IO.putStrLn $ "> " ++ show msg
       liftIO $ hPut hnd $ toStrict (runPut $ putWord32le (fromIntegral . (+4) $ Data.ByteString.length bs) >> putByteString bs)

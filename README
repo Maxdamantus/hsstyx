@@ -1,0 +1,7 @@
+Another implementation of 9P/Styx[,] in Haskell.
+
+This one should encourage more declarative definitions of filesystems. It
+provides an interface that relatively closely matches the protocol.
+
+Work in progress; not really usable at the moment, slightly disorganised and
+messy.

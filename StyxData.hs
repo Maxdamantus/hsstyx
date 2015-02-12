@@ -175,7 +175,7 @@ data Tmessage =
   Topen Fid OMode |
   Tcreate Fid ByteString Perm OMode |
   Tread Fid Word64 Word32 |
-  -- TODO: Twrite
+  Twrite Fid Word64 ByteString |
   Tclunk Fid |
   Tremove Fid |
   Tstat Fid |
@@ -199,6 +199,7 @@ instance SBinary TtaggedMessage where
         Topen fid mode -> (TTopen, sput (fid, mode))
         Tcreate qid name perm mode -> (TTcreate, sput (qid, name, perm, mode))
         Tread fid offset count -> (TTread, sput (fid, offset, count))
+        Twrite fid offset wdata -> (TTwrite, sput (fid, offset, fromIntegral $ BS.length wdata :: Word32) >> putByteString wdata)
         Tclunk fid -> (TTclunk, sput fid)
         Tremove fid -> (TTremove, sput fid)
         Tstat fid -> (TTstat, sput fid)
@@ -215,6 +216,7 @@ instance SBinary TtaggedMessage where
       TTopen -> Topen <$> sget <*> sget
       TTcreate -> Tcreate <$> sget <*> sget <*> sget <*> sget
       TTread -> Tread <$> sget <*> sget <*> sget
+      TTwrite -> Twrite <$> sget <*> sget <*> do{ len <- sget; getByteString (fromIntegral (len :: Word32)) }
       TTclunk -> Tclunk <$> sget
       TTremove -> Tremove <$> sget
       TTstat -> Tstat <$> sget
@@ -238,7 +240,7 @@ data Rmessage =
   Ropen Qid Word32 |
   Rcreate Qid Word32 |
   Rread ByteString |
-  -- TODO: Rwrite
+  Rwrite Word32 |
   Rclunk |
   Rremove |
   Rstat Stat |
@@ -264,6 +266,7 @@ instance SBinary RtaggedMessage where
         Rcreate qid iounit -> (TRcreate, sput (qid, iounit))
         -- 4-byte length
         Rread rdata -> (TRread, sput (fromIntegral $ BS.length rdata :: Word32) >> putByteString rdata)
+        Rwrite count -> (TRwrite, sput count)
         Rclunk -> (TRclunk, return ())
         Rremove -> (TRremove, return ())
         Rstat stat -> (TRstat, sput (BSL.toStrict $ runPut $ sput stat))
@@ -280,6 +283,7 @@ instance SBinary RtaggedMessage where
       TRopen -> Ropen <$> sget <*> sget
       TRcreate -> Rcreate <$> sget <*> sget
       TRread -> Rread <$> do{ len <- sget; getByteString (fromIntegral (len :: Word32)) }
+      TRwrite -> Rwrite <$> sget
       TRclunk -> return Rclunk
       TRremove -> return Rremove
       TRstat -> Rstat <$> do{ skip 2; sget }

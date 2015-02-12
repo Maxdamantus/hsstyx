@@ -36,6 +36,7 @@ data FidHandler m = FidHandler {
   fhWalk :: Handler m [ByteString] (FidHandler m, [Qid]),
   fhOpen :: Handler m OMode (FidHandler m, Qid, Word32),
   fhStat :: Handler m () Stat,
+  fhWstat :: Handler m Stat (),
   fhClunk :: Handler m () ()
 }
 
@@ -43,7 +44,7 @@ instance Show (FidHandler m) where
   show fh = "FidHandler{ .. }"
 
 nilFidHandler :: FidHandler m
-nilFidHandler = FidHandler n n n n n n n clunkHandler
+nilFidHandler = FidHandler n n n n n n n n clunkHandler
   where n = notYetImpl
 
 data SrvHandler m = SrvHandler {
@@ -85,8 +86,12 @@ input sh out (TtaggedMessage tag tmsg) = case tmsg of
       resp $ Rcreate qid iounit
   Tread fid offs len -> checkFid fid $ \fh ->
     fhRead fh (offs, len) err $ resp . Rread
+  Twrite fid offs bs -> checkFid fid $ \fh ->
+    fhWrite fh (offs, bs) err $ resp . Rwrite
   Tstat fid -> checkFid fid $ \fh ->
     fhStat fh () err $ resp . Rstat
+  Twstat fid stat -> checkFid fid $ \fh ->
+    fhWstat fh stat err $ const $ resp Rwstat
   Tclunk fid -> checkFid fid $ \fh -> do
     modify $ M.delete fid
     -- fid is removed before the response

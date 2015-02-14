@@ -25,7 +25,7 @@ dirFh name contentsM = it
       fhOpen = \mode err resp -> do
         contents <- contentsM
         -- TODO: need to actually lower read requests to lie along stat borders
-        let z stats = resp (it{ fhRead = dirReader stats }, qid, 8192)
+        let z stats = resp (it{ fhRead = dirRead stats }, qid, 8192)
         let join (fname, fh) next after = fhStat fh () err $ \fstat ->
               next $ fstat{ stName = U.fromString fname }:after
         foldr join z contents []
@@ -38,7 +38,7 @@ readFh contents = it
       fhStat = \_ err resp ->
         resp $ Stat 0x2e00 (Dev 0x7F57) qid (FMode 0o100) (Time 0xbe038000) (Time 0xbe038000) 0x54d (U.fromString ".") (U.fromString "max") (U.fromString "max") (U.fromString "max")
       ,
-      fhRead = bsReader contents
+      fhRead = bsRead contents
       ,
       fhWalk = \dirs err resp ->
         case dirs of
@@ -64,8 +64,8 @@ walker current lookup = \dirs err resp ->
               resp (newfh, nextqid:qids)
 
 -- server is required to end the read at the end of some stat structure
-dirReader :: [Stat] -> Handler m (Word64, Word32) BS.ByteString
-dirReader stats = \(offs, count) err resp ->
+dirRead :: [Stat] -> Handler m (Word64, Word32) BS.ByteString
+dirRead stats = \(offs, count) err resp ->
   let
     trunc = case dropWhile (< count) $ map (subtract $ fromIntegral offs) boundaries of
       b:_ -> min b count
@@ -80,6 +80,15 @@ dirReader stats = \(offs, count) err resp ->
       in l:b l ss
     contents = BS.concat stats'
 
-bsReader :: BS.ByteString -> Handler m (Word64, Word32) BS.ByteString
-bsReader contents = \(offs, count) err resp ->
+fhStatList :: Handler m [FidHandler m] [Stat]
+fhStatList [] err resp = resp []
+fhStatList (fh:fhs) err resp =
+  fhStat fh () err $ \stat ->
+    fhStatList fhs err (resp . (stat:))
+
+bsRead :: BS.ByteString -> Handler m (Word64, Word32) BS.ByteString
+bsRead contents = \(offs, count) err resp ->
   resp $ BS.take (fromIntegral count) $ BS.drop (fromIntegral offs) contents
+
+modeAdd :: Qid -> Word32
+modeAdd (Qid (Type n) _ _) = (fromIntegral n)*2^24

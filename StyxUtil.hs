@@ -63,6 +63,12 @@ walker current lookup = \dirs err resp ->
             _ -> fhWalk fh as err $ \(newfh, qids) ->
               resp (newfh, nextqid:qids)
 
+fileWalker :: FidHandler m -> Handler m [BS.ByteString] (FidHandler m, [Qid])
+fileWalker current = \dirs err resp ->
+  case dirs of
+    [] -> resp (current, [])
+    _ -> err "not a directory"
+
 -- server is required to end the read at the end of some stat structure
 dirRead :: [Stat] -> Handler m (Word64, Word32) BS.ByteString
 dirRead stats = \(offs, count) err resp ->

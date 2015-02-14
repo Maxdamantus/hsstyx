@@ -16,12 +16,6 @@ type Err m = String -> StyxT m ()
 type Resp m t = t -> StyxT m ()
 type Handler m i o = i -> Err m -> Resp m o -> StyxT m ()
 
-{-
-writeRmessage :: ((Tag, Rmessage) -> ByteString)
-writeRmessage (tag, rmsg) =
-  ..
-  -}
-
 notYetImpl :: Handler m i o
 notYetImpl _ err _ = err "not yet implemented"
 
@@ -29,7 +23,7 @@ clunkHandler :: Handler m () ()
 clunkHandler () err resp = resp ()
 
 data FidHandler m = FidHandler {
-  fhCreate :: Handler m (ByteString, Perm, OMode) (Qid, Word32),
+  fhCreate :: Handler m (ByteString, Perm, OMode) (FidHandler m, Qid, Word32),
   fhRead :: Handler m (Word64, Word32) ByteString,
   fhWrite :: Handler m (Word64, ByteString) Word32,
   fhRemove :: Handler m () (),
@@ -81,8 +75,8 @@ input sh out (TtaggedMessage tag tmsg) = case tmsg of
       modify $ M.insert fid $ Just newfh
       resp $ Ropen qid iounit
   Tcreate fid name perm mode -> checkFid fid $ \fh ->
-    fhCreate fh (name, perm, mode) err $ \(qid, iounit) -> do
-      -- TODO: replace fid
+    fhCreate fh (name, perm, mode) err $ \(newfh, qid, iounit) -> do
+      modify $ M.insert fid $ Just newfh
       resp $ Rcreate qid iounit
   Tread fid offs len -> checkFid fid $ \fh ->
     fhRead fh (offs, len) err $ resp . Rread

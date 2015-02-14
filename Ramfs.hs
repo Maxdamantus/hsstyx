@@ -30,6 +30,12 @@ getObj path = liftM (M.lookup path . snd) get
 putObj :: Monad m => Word64 -> Object -> RamfsT m ()
 putObj path obj = modify $ second $ M.insert path obj
 
+putNewObj :: Monad m => Object -> RamfsT m Word64
+putNewObj obj = do
+  modify $ \(counter, map) ->
+    (succ counter, M.insert counter obj map)
+  liftM (pred . fst) get
+
 getObjS :: Monad m => Word64 -> Err (RamfsT m) -> (Object -> StyxT (RamfsT m) ()) -> StyxT (RamfsT m) ()
 getObjS path err okay = lift (getObj path) >>= \mo ->
   case mo of
@@ -49,20 +55,36 @@ fhFor path = it
       ,
       fhWalk = \dirs err resp -> getObjS path err $ \obj -> do
         case obj of
-          Object (CFile _) -> err "not a directory"
+          Object (CFile _) -> fileWalker it dirs err resp
           Object (CDir ls) -> walker it (fmap fhFor . flip M.lookup ls) dirs err resp
       ,
       fhOpen = \mode err resp -> getObjS path err $ \obj -> do
         fhStat it () err $ \stat ->
           case obj of
-            Object (CFile _) -> resp (openFileFh path, stQid stat, 8192)
+            Object (CFile _) -> resp ((openFileFh path){ fhStat = fhStat it {- .. see below -} }, stQid stat, 8192)
             Object (CDir ls) -> do
               let ls' = M.toList ls
               let names = map fst ls'
               fhStatList (map (fhFor . snd) ls') err $ \stats ->
                 resp (nilFidHandler{
+                  fhStat = fhStat it, -- for create; I suspect clients aren't actually allowed to rely on this
                   fhRead = dirRead (zipWith (\name stat -> stat{ stName = name }) names stats)
                 }, stQid stat, 8192)
+      ,
+      fhCreate = \(name, Perm perm, omode) err resp -> getObjS path err $ \obj ->
+        case obj of
+          Object (CFile _) -> err "not a directory"
+          Object (CDir ls) -> case M.lookup name ls of
+            Just _ -> err "file exists"
+            Nothing -> do
+              let newobj = case perm `div` (2^24) of
+                    0 -> Object $ CFile BS.empty
+                    0x80 -> Object $ CDir M.empty
+              newpath <- lift $ putNewObj newobj
+              lift $ putObj path (Object $ CDir $ M.insert name newpath ls)
+              fhOpen (fhFor newpath) omode err resp
+      ,
+      fhWstat = \stat err resp -> resp () -- to stop it complaining for now
     }
 
 -- could later remember how the file was opened
@@ -74,6 +96,18 @@ openFileFh path = it
         case obj of
           Object (CFile bs) -> bsRead bs offscount err resp
           _ -> err "how did I get here?" -- let the days go by
+      ,
+      fhWrite = \(offs, wdata) err resp -> getObjS path err $ \obj -> do
+        let offs' = fromIntegral offs
+        case obj of
+          Object (CFile bs) ->
+            if offs' > BS.length bs
+              then err "can't write after the end"
+              else do
+                let newbs = BS.concat [BS.take offs' bs, wdata, BS.drop (offs' + BS.length wdata) bs]
+                lift $ putObj path (Object $ CFile newbs)
+                resp $ fromIntegral $ BS.length wdata
+          _ -> err "I don't belong here"
     }
 
 empty :: RamfsState
